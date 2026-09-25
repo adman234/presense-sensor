@@ -29,7 +29,7 @@ and is only a few lines long:
 
 ```yaml
 substitutions:
-  name: "akamatis-smart-device-4"
+  name: "akamatis-smart-device-5"
   friendly_name: "Akamatis Bedroom"
 
 packages:
