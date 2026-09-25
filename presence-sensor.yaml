@@ -1,0 +1,560 @@
+# Akamatis LD2410 presence sensor -- SHARED BODY (remote ESPHome package)
+#
+# Do not flash this file directly. Each sensor has a small device file that sets
+# its substitutions and pulls this file from GitHub via `packages:`. Start from
+# example-device.yaml next to this file. See README.md.
+#
+# Hardware: Akamatis smart presence sensor -- ESP32-C3 (esp32-c3-devkitm-1) +
+# HLK-LD2410 mmWave radar on UART. Uses Akamatis' extended ld2410 component
+# (github.com/akamatis-smart-devices/esphome-custom) for per-gate thresholds,
+# engineering mode and the on-device auto calibration below.
+#
+# Every change pushed here reaches every sensor on its next compile + flash.
+#
+# SUBSTITUTIONS
+#   Required in the device file (no defaults -- the build fails without them):
+#     name, friendly_name
+#   Optional, defaults below; the device file overrides any of them.
+
+substitutions:
+  # Where the device answers for OTA/logs. Override only while a rename is in
+  # flight (point it at the OLD address until the rename flash lands).
+  device_address: "${name}.local"
+  # Fallback AP SSID (max 32 chars).
+  ap_ssid: "${friendly_name} Hotspot"
+  log_level: "INFO"
+  # Radar UART pins on the ESP32-C3.
+  esp32_tx_pin: GPIO21
+  esp32_rx_pin: GPIO20
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: false
+  project:
+    name: Akamatis.SmartHomeDevice
+    version: "1.3"
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+logger:
+  level: ${log_level}
+
+api:
+  encryption:
+    key: !secret akamatis-presense__api_key
+
+ota:
+  - platform: esphome
+    encryption:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: NONE
+  reboot_timeout: 10min
+  id: wifi_comp
+  use_address: ${device_address}
+
+  ap:
+    ssid: "${ap_ssid}"
+    password: !secret ap_password
+
+captive_portal:
+
+# Web UI enabled here: this device has lots of LD2410 thresholds worth
+# tuning in a browser. Password-protected; local assets for offline use.
+web_server:
+  port: 80
+  local: true
+  auth:
+    username: admin
+    password: !secret web_password
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/akamatis-smart-devices/esphome-custom.git
+      path: components
+    components: [ld2410]
+
+globals:
+  - id: calibration_running
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+  - id: calibration_seconds_total
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+  - id: calibration_seconds_elapsed
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+  - id: max_move
+    type: int[9]
+    restore_value: no
+
+  - id: max_still
+    type: int[9]
+    restore_value: no
+
+uart:
+  id: uart_bus
+  tx_pin: ${esp32_tx_pin}
+  rx_pin: ${esp32_rx_pin}
+  baud_rate: 256000
+  parity: NONE
+  stop_bits: 1
+
+ld2410:
+  uart_id: uart_bus
+  id: ld2410_comp
+
+button:
+  - platform: ld2410
+    query_params:
+      name: "01: Radar - Refresh values"
+      id: radar_query_params
+      icon: mdi:database-sync-outline
+      entity_category: ""
+
+    restart:
+      name: "02: Radar - Restart"
+      entity_category: ""
+
+    factory_reset:
+      name: "03: Radar - Factory reset"
+      entity_category: ""
+
+  - platform: restart
+    name: "04: ESP32 - Restart"
+    id: restart_esp32
+    entity_category: ""
+
+  - platform: factory_reset
+    name: "05: ESP32 - Factory reset"
+    entity_category: ""
+
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            lambda: return id(calibration_running);
+          then:
+            - lambda: |-
+                float move_energy[9] = {
+                  id(g0_move_energy).state,
+                  id(g1_move_energy).state,
+                  id(g2_move_energy).state,
+                  id(g3_move_energy).state,
+                  id(g4_move_energy).state,
+                  id(g5_move_energy).state,
+                  id(g6_move_energy).state,
+                  id(g7_move_energy).state,
+                  id(g8_move_energy).state
+                };
+
+                float still_energy[9] = {
+                  id(g0_still_energy).state,
+                  id(g1_still_energy).state,
+                  id(g2_still_energy).state,
+                  id(g3_still_energy).state,
+                  id(g4_still_energy).state,
+                  id(g5_still_energy).state,
+                  id(g6_still_energy).state,
+                  id(g7_still_energy).state,
+                  id(g8_still_energy).state
+                };
+
+                for (int gate = 0; gate < 9; gate++) {
+                  int move = (int) move_energy[gate];
+                  int still = (int) still_energy[gate];
+
+                  int new_max_move = std::max(id(max_move)[gate], move);
+                  int new_max_still = std::max(id(max_still)[gate], still);
+
+                  ESP_LOGD("Calibration", "Gate %d | Move energy: %d (max %d) | Still energy: %d (max %d)",
+                           gate,
+                           move, new_max_move,
+                           still, new_max_still);
+
+                  if (new_max_move <= 100)
+                    id(max_move)[gate] = new_max_move;
+                  if (new_max_still <= 100)
+                    id(max_still)[gate] = new_max_still;
+                }
+
+                id(calibration_seconds_elapsed)++;
+
+                int left =
+                  id(calibration_seconds_total)
+                  - id(calibration_seconds_elapsed);
+
+                id(calibration_status)->publish_state(
+                  std::to_string(left) + "s left"
+                );
+
+                if (id(calibration_seconds_elapsed) >=
+                    id(calibration_seconds_total)) {
+
+                  id(finish_calibration).execute();
+                }
+
+  # Forcefully factory reset the radar if it outputs 'unknown' values
+  # for more than 5 minutes.
+  - interval: 5min
+    then:
+      - lambda: |-
+          if (isnan(id(detection_distance).state)) {
+            ESP_LOGE("ld2410", "Radar sensor is not responding, executing factory reset: ...");
+            id(ld2410_comp).factory_reset();
+            delay(2000);
+            ESP_LOGW("esp32", "Restarting the device: ...");
+            id(restart_esp32).press();
+          }
+
+  # Engineering Mode should not be left enabled for extended periods,
+  # as it can overload the UART bus and cause the radar to stop outputting data.
+  - interval: 60min
+    then:
+      - lambda: |-
+          if (id(engineering_mode).state && !id(calibration_running)) {
+            ESP_LOGW("ld2410", "Turning OFF the engineering mode: ...");
+            id(engineering_mode).turn_off();
+          }
+
+script:
+  - id: finish_calibration
+
+    then:
+      - lambda: |-
+          id(calibration_running) = false;
+          id(auto_calibration).publish_state(false);
+
+          id(engineering_mode).publish_state(false);
+          id(ld2410_comp).set_engineering_mode(false);
+
+          number::Number* move_thr[9] = {
+            id(g0_move_thr),
+            id(g1_move_thr),
+            id(g2_move_thr),
+            id(g3_move_thr),
+            id(g4_move_thr),
+            id(g5_move_thr),
+            id(g6_move_thr),
+            id(g7_move_thr),
+            id(g8_move_thr)
+          };
+
+          number::Number* still_thr[9] = {
+            id(g0_still_thr),
+            id(g1_still_thr),
+            id(g2_still_thr),
+            id(g3_still_thr),
+            id(g4_still_thr),
+            id(g5_still_thr),
+            id(g6_still_thr),
+            id(g7_still_thr),
+            id(g8_still_thr)
+          };
+
+          ld2410::LD2410Component* radar = id(ld2410_comp);
+
+          int margin =
+            (int) id(noise_margin).state;
+
+          for (int gate = 0; gate < 9; gate++) {
+
+            int move_threshold =
+              std::min(100, id(max_move)[gate] + margin);
+
+            int still_threshold =
+              std::min(100, id(max_still)[gate] + margin);
+
+            if (move_threshold > move_thr[gate]->state)
+              move_thr[gate]->publish_state(move_threshold);
+            if (still_threshold > still_thr[gate]->state)
+              still_thr[gate]->publish_state(still_threshold);
+          }
+
+          radar->set_gate_thresholds();
+
+      - text_sensor.template.publish:
+          id: calibration_status
+          state: "Complete"
+
+select:
+  - platform: ld2410
+    distance_resolution:
+      name: Distance resolution
+      disabled_by_default: true
+
+    baud_rate:
+      name: Baud rate
+      disabled_by_default: true
+
+binary_sensor:
+  - platform: ld2410
+    has_target:
+      name: Presence
+    has_moving_target:
+      name: Moving Target
+    has_still_target:
+      name: Still Target
+
+text_sensor:
+  - platform: template
+    name: "01: Calibration status"
+    id: calibration_status
+    icon: mdi:auto-fix
+    entity_category: diagnostic
+
+  - platform: ld2410
+    version:
+      name: "02: Firmware"
+    mac_address:
+      name: "03: MAC address"
+
+switch:
+  - platform: template
+    name: "010: Radar - Auto calibration"
+    id: auto_calibration
+    icon: mdi:auto-fix
+    entity_category: config
+    optimistic: false
+
+    turn_on_action:
+        - lambda: |-
+            id(auto_calibration).publish_state(true);
+            id(calibration_running) = true;
+
+            id(calibration_seconds_total) =
+              (int) id(calibration_duration).state * 60;
+
+            id(calibration_seconds_elapsed) = 0;
+
+            for (int gate = 0; gate < 9; gate++) {
+              id(max_move)[gate] = 0;
+              id(max_still)[gate] = 0;
+            }
+
+            id(ld2410_comp).set_engineering_mode(true);
+
+    turn_off_action:
+      - if:
+          condition:
+            lambda: return id(calibration_running);
+          then:
+            - script.execute: finish_calibration
+
+  - platform: ld2410
+    engineering_mode:
+      id: engineering_mode
+      name: "050: Engineering mode"
+
+    bluetooth:
+      name: Bluetooth
+      disabled_by_default: true
+
+number:
+  - platform: template
+    name: "011: Duration"
+    id: calibration_duration
+    entity_category: config
+    icon: mdi:auto-fix
+    unit_of_measurement: "min"
+    min_value: 1
+    max_value: 10
+    step: 1
+    mode: box
+    optimistic: true
+    initial_value: 1
+
+  - platform: template
+    name: "012: Margin"
+    id: noise_margin
+    entity_category: config
+    icon: mdi:auto-fix
+    unit_of_measurement: "%"
+    min_value: 5
+    max_value: 15
+    step: 5
+    mode: box
+    optimistic: true
+    initial_value: 5
+
+  - platform: ld2410
+    timeout:
+      name: "020: Timeout"
+    max_move_distance_gate:
+      name: "030: Max move distance gate"
+    max_still_distance_gate:
+      name: "040: Max still distance gate"
+
+    g0:
+      move_threshold:
+        name: G0 move threshold
+        id: g0_move_thr
+      still_threshold:
+        name: G0 still threshold
+        id: g0_still_thr
+
+    g1:
+      move_threshold:
+        name: G1 move threshold
+        id: g1_move_thr
+      still_threshold:
+        name: G1 still threshold
+        id: g1_still_thr
+
+    g2:
+      move_threshold:
+        name: G2 move threshold
+        id: g2_move_thr
+      still_threshold:
+        name: G2 still threshold
+        id: g2_still_thr
+
+    g3:
+      move_threshold:
+        name: G3 move threshold
+        id: g3_move_thr
+      still_threshold:
+        name: G3 still threshold
+        id: g3_still_thr
+
+    g4:
+      move_threshold:
+        name: G4 move threshold
+        id: g4_move_thr
+      still_threshold:
+        name: G4 still threshold
+        id: g4_still_thr
+
+    g5:
+      move_threshold:
+        name: G5 move threshold
+        id: g5_move_thr
+      still_threshold:
+        name: G5 still threshold
+        id: g5_still_thr
+
+    g6:
+      move_threshold:
+        name: G6 move threshold
+        id: g6_move_thr
+      still_threshold:
+        name: G6 still threshold
+        id: g6_still_thr
+
+    g7:
+      move_threshold:
+        name: G7 move threshold
+        id: g7_move_thr
+      still_threshold:
+        name: G7 still threshold
+        id: g7_still_thr
+
+    g8:
+      move_threshold:
+        name: G8 move threshold
+        id: g8_move_thr
+      still_threshold:
+        name: G8 still threshold
+        id: g8_still_thr
+
+
+sensor:
+  # Main Unit: human presence (ld2401/ld2410)
+  - platform: ld2410
+    moving_distance:
+      name: Moving Distance
+    still_distance:
+      name: Still Distance
+    moving_energy:
+      name: Move Energy
+    still_energy:
+      name: Still Energy
+    detection_distance:
+      id: detection_distance
+      name: Detection Distance
+
+    g0:
+      move_energy:
+        name: G0 move energy
+        id: g0_move_energy
+      still_energy:
+        name: G0 still energy
+        id: g0_still_energy
+
+    g1:
+      move_energy:
+        name: G1 move energy
+        id: g1_move_energy
+      still_energy:
+        name: G1 still energy
+        id: g1_still_energy
+
+    g2:
+      move_energy:
+        name: G2 move energy
+        id: g2_move_energy
+      still_energy:
+        name: G2 still energy
+        id: g2_still_energy
+
+    g3:
+      move_energy:
+        name: G3 move energy
+        id: g3_move_energy
+      still_energy:
+        name: G3 still energy
+        id: g3_still_energy
+
+    g4:
+      move_energy:
+        name: G4 move energy
+        id: g4_move_energy
+      still_energy:
+        name: G4 still energy
+        id: g4_still_energy
+
+    g5:
+      move_energy:
+        name: G5 move energy
+        id: g5_move_energy
+      still_energy:
+        name: G5 still energy
+        id: g5_still_energy
+
+    g6:
+      move_energy:
+        name: G6 move energy
+        id: g6_move_energy
+      still_energy:
+        name: G6 still energy
+        id: g6_still_energy
+
+    g7:
+      move_energy:
+        name: G7 move energy
+        id: g7_move_energy
+      still_energy:
+        name: G7 still energy
+        id: g7_still_energy
+
+    g8:
+      move_energy:
+        name: G8 move energy
+        id: g8_move_energy
+      still_energy:
+        name: G8 still energy
+        id: g8_still_energy

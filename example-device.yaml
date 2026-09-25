@@ -1,0 +1,31 @@
+# Akamatis LD2410 presence sensor -- DEVICE FILE TEMPLATE
+#
+# Copy this to <name>.yaml in your ESPHome config directory (next to your
+# secrets.yaml), fill in the placeholders below, and flash it. That's the whole
+# device config: the body is pulled from GitHub by `packages:` at compile time.
+# See README.md.
+
+substitutions:
+  # ESPHome node name = hostname = HA device. Unique per sensor. Lowercase
+  # a-z 0-9 - only, max 31 chars. Renaming a deployed sensor changes EVERY
+  # Home Assistant entity ID it owns.
+  name: "akamatis-smart-device-new"
+  # Friendly name shown in HA; also prefixes entity names.
+  friendly_name: "Akamatis CHANGE_ME"
+
+  # --- Optional overrides (defaults shown) ---
+  # log_level: "INFO"
+  # ap_ssid: "<friendly_name> Hotspot"    # max 32 chars
+  # esp32_tx_pin: GPIO21
+  # esp32_rx_pin: GPIO20
+  # device_address: "<name>.local"        # set to the OLD address while a
+  #                                       # rename flash is pending
+
+packages:
+  presence:
+    url: https://github.com/adman234/presense-sensor
+    # Pin to a tag or commit SHA to freeze a sensor on a known-good version;
+    # `main` means every compile picks up the latest body.
+    ref: main
+    files: [presence-sensor.yaml]
+    refresh: 0s                           # always fetch the latest ref
