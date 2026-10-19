@@ -194,3 +194,10 @@ Last verified with `esphome config` and a full `esphome compile` on ESPHome
 | Radar | HLK-LD2410, UART 256000 8N1 |
 | Radar TX → ESP | ESP `GPIO20` (`rx_pin`) |
 | ESP → Radar RX | ESP `GPIO21` (`tx_pin`) |
+
+## License
+
+The files in this repository are MIT licensed, see [LICENSE](LICENSE). The `ld2410`
+component is not copied here: ESPHome fetches it from Akamatis'
+[esphome-custom](https://github.com/akamatis-smart-devices/esphome-custom) at compile
+time, and that repository has no license file, so it stays under its author's terms.
