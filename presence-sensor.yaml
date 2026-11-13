@@ -403,73 +403,91 @@ number:
       move_threshold:
         name: G0 move threshold
         id: g0_move_thr
+        device_class: ""
       still_threshold:
         name: G0 still threshold
         id: g0_still_thr
+        device_class: ""
 
     g1:
       move_threshold:
         name: G1 move threshold
         id: g1_move_thr
+        device_class: ""
       still_threshold:
         name: G1 still threshold
         id: g1_still_thr
+        device_class: ""
 
     g2:
       move_threshold:
         name: G2 move threshold
         id: g2_move_thr
+        device_class: ""
       still_threshold:
         name: G2 still threshold
         id: g2_still_thr
+        device_class: ""
 
     g3:
       move_threshold:
         name: G3 move threshold
         id: g3_move_thr
+        device_class: ""
       still_threshold:
         name: G3 still threshold
         id: g3_still_thr
+        device_class: ""
 
     g4:
       move_threshold:
         name: G4 move threshold
         id: g4_move_thr
+        device_class: ""
       still_threshold:
         name: G4 still threshold
         id: g4_still_thr
+        device_class: ""
 
     g5:
       move_threshold:
         name: G5 move threshold
         id: g5_move_thr
+        device_class: ""
       still_threshold:
         name: G5 still threshold
         id: g5_still_thr
+        device_class: ""
 
     g6:
       move_threshold:
         name: G6 move threshold
         id: g6_move_thr
+        device_class: ""
       still_threshold:
         name: G6 still threshold
         id: g6_still_thr
+        device_class: ""
 
     g7:
       move_threshold:
         name: G7 move threshold
         id: g7_move_thr
+        device_class: ""
       still_threshold:
         name: G7 still threshold
         id: g7_still_thr
+        device_class: ""
 
     g8:
       move_threshold:
         name: G8 move threshold
         id: g8_move_thr
+        device_class: ""
       still_threshold:
         name: G8 still threshold
         id: g8_still_thr
+        device_class: ""
 
 
 sensor:
